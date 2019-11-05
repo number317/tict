@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
     sqlite3_open(path, &words_db);
     if(result!=0) {
         char *err;
-        if(sqlite3_exec(words_db, "create table words(id integer primary key autoincrement, word text, pronunciation text, meaning text, query_count integer);", NULL, NULL, &err)!=SQLITE_OK)
+        if(sqlite3_exec(words_db, "create table words(id integer primary key autoincrement, word text, pronunciation text, meaning text, query_count integer default 0);", NULL, NULL, &err)!=SQLITE_OK)
         perror(err);
     }
 
@@ -29,32 +29,31 @@ int main(int argc, char *argv[]) {
                 update_db(words_db);
                 printf("update success, you can clear $HOME/.words now.\n");
             }
-            /* if(strcmp(argv[1], "clean")==0) { */
-            /*     clean_db(words_db); */
-            /*     break; */
-            /* } */
-            /* if(strcmp(argv[1], "top")==0) { */
-            /*     top_word(words_db); */
-            /*     break; */
-            /* } */
-            /* if(strcmp(argv[1], "init")) { */
-            /*     random_word(words_db); */
-            /*     break; */
-            /* } */
-            /* if(strcmp(argv[1], "init")) { */
-            /*     show_word(words_db); */
-            /*     break; */
-            /* } */
+            else if(strcmp(argv[1], "clean")==0) {
+                clean_db(words_db);
+                printf("clean success\n");
+            }
+            else if(strcmp(argv[1], "random")==0) {
+                Word *word;
+                word = NULL;
+                word = random_word(words_db);
+                print_word(word);
+                free(word->word);
+                free(word->pronunciation);
+                free(word->meaning);
+                free(word);
+            }
             break;
         case 3: {
-            Word *word;
-            word = NULL;
+            Word *word = NULL;
             word = query_word(words_db, argv[2]);
-            print_word(word);
-            free(word->word);
-            free(word->pronunciation);
-            free(word->meaning);
-            free(word);
+            if(word!=NULL) {
+                print_word(word);
+                free(word->word);
+                free(word->pronunciation);
+                free(word->meaning);
+                free(word);
+            }
             break;
         }
         default:
@@ -147,13 +146,28 @@ void update_db(sqlite3 *words_db) {
     free(path);
 }
 
+void clean_db(sqlite3 *words_db) {
+    sqlite3_exec(words_db, "delete from words; vacuum;", NULL, NULL, NULL);
+    sqlite3_exec(words_db, "UPDATE \"main\".\"sqlite_sequence\" SET seq = 0 WHERE name = 'words';", NULL, NULL, NULL);
+}
+
 Word * query_word(sqlite3 *words_db, char *word) {
     Word *result = (Word *)malloc(sizeof(Word));
+    result->word = NULL;
     char *sql = (char *)calloc(sizeof(char) , BUFSIZ);
     sprintf(sql, "select * from words where word like \"%%%s%%\"", word);
     sqlite3_exec(words_db, sql, query_callback, result, NULL);
-    if(result == NULL)
+    if(result->word == NULL) {
         fprintf(stderr, "%s\n", "result not found in local database.");
+        free(result);
+        result = NULL;
+    }
     free(sql);
+    return result;
+}
+
+Word * random_word(sqlite3 *words_db) {
+    Word *result = (Word *)malloc(sizeof(Word));
+    sqlite3_exec(words_db, "select * from words order by random() limit 1;", query_callback, result, NULL);
     return result;
 }
