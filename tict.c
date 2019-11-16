@@ -38,21 +38,31 @@ int main(int argc, char *argv[]) {
                 word = NULL;
                 word = random_word(words_db);
                 print_word(word);
-                free(word->word);
-                free(word->pronunciation);
-                free(word->meaning);
-                free(word);
+                free_word(word);
             }
-            break;
+            else if(strcmp(argv[1], "top")==0) {
+                Word ** result = (Word**)malloc(sizeof(Word*)*10);
+                for(int i=0; i<10; i++) {
+                    result[i] = (Word*)malloc(sizeof(Word));
+                    result[i]->word = (char *)calloc(sizeof(char), LONGEST_WORD);
+                    result[i]->pronunciation = (char *)calloc(sizeof(char), LONGEST_WORD);
+                    result[i]->meaning = (char *)calloc(sizeof(char), BUFSIZ);
+                }
+                printf("You are here\n");
+                result = top_word(words_db, result);
+                for(int i=0; i<0; i++) {
+                    print_word(result[i]);
+                    free_word(result[i]);
+                }
+                free(result);
+            } else
+                usage();
         case 3: {
             Word *word = NULL;
             word = query_word(words_db, argv[2]);
             if(word!=NULL) {
                 print_word(word);
-                free(word->word);
-                free(word->pronunciation);
-                free(word->meaning);
-                free(word);
+                free_word(word);
             }
             break;
         }
@@ -75,13 +85,19 @@ void usage() {
     printf("         query: query a word from database.\n");
     printf("         top: show the top 10 words you most queried.\n");
     printf("         random: pick up a random word from database.\n");
-    printf("         show: show all the words in database.\n");
     printf("         help: print this usage info.\n");
 
 }
 
 void print_word(Word *word) {
     printf("%s\e[32;1mUK\e[0m: %s%s", word->word,word->pronunciation,word->meaning);
+}
+
+void free_word(Word *word) {
+    free(word->word);
+    free(word->meaning);
+    free(word->pronunciation);
+    free(word);
 }
 
 int query_callback(void *data, int column_count, char **column_value, char **column_name) {
@@ -138,10 +154,7 @@ void update_db(sqlite3 *words_db) {
         }
         line_count++;
     }
-    free(word->meaning);
-    free(word->pronunciation);
-    free(word->word);
-    free(word);
+    free_word(word);
     fclose(words);
     free(path);
 }
@@ -158,11 +171,26 @@ Word * query_word(sqlite3 *words_db, char *word) {
     sprintf(sql, "select * from words where word like \"%%%s%%\"", word);
     sqlite3_exec(words_db, sql, query_callback, result, NULL);
     if(result->word == NULL) {
-        fprintf(stderr, "%s\n", "result not found in local database.");
         free(result);
         result = NULL;
     }
     free(sql);
+    return result;
+}
+
+Word ** top_word(sqlite3 *words_db, Word **result) {
+    sqlite3_stmt *stmt = NULL;
+    const char *zTail;
+
+    if(sqlite3_prepare(words_db, "select * from words order by query_count desc limit 10;", -1, &stmt, &zTail) == SQLITE_OK) {
+        int i = 0;
+        while( sqlite3_step(stmt) == SQLITE_ROW ) { 
+            result[i]->word = (char *)sqlite3_column_text(stmt, 1);
+            result[i]->pronunciation = (char *)sqlite3_column_text(stmt, 2);
+            result[i]->meaning = (char *)sqlite3_column_text(stmt, 3);
+            i++;
+        } 
+    }
     return result;
 }
 
