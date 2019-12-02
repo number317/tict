@@ -1,10 +1,69 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <argp.h>
 #include "tict.h"
 
 #define LONGEST_WORD 48
 #define UNUSED(x) (void)x
+
+const char *argp_program_bug_address = "cheon0112358d@gmail.com";
+const char *argp_program_version = "version 1.0.0";
+const char *argp_doc = "dict in terminal which saves query words in local database";
+
+static int parse_opt(int key, char *arg, struct argp_state *state) {
+    sqlite3 *words_db = state->input;
+    switch(key) {
+        case 'c':
+            clean_db(words_db);
+            printf("delete all data in database\n");
+            break;
+        case 'q': {
+            Word *word = query_word(words_db, arg);
+            if(word!=NULL) {
+                print_word(word);
+                free_word(word);
+            }
+            break;
+        }
+        case 'r': {
+            Word *word = random_word(words_db);
+            if(word==NULL)
+                printf("there is no word in database\n");
+            else {
+                print_word(word);
+                free_word(word);
+            }
+            break;
+        }
+        case 't': {
+            Word ** result = (Word**)malloc(sizeof(Word*)*10);
+            for(int i=0; i<10; i++) {
+                result[i] = (Word*)malloc(sizeof(Word));
+                result[i]->word = (char *)calloc(sizeof(char), LONGEST_WORD);
+                result[i]->pronunciation = (char *)calloc(sizeof(char), LONGEST_WORD);
+                result[i]->meaning = (char *)calloc(sizeof(char), BUFSIZ);
+            }
+            result = top_word(words_db, result);
+            if(strcmp(result[0]->word, "")==0)
+                printf("there is no word in database\n");
+            else {
+                for(int i=0; i<10; i++) {
+                    print_word(result[i]);
+                    free_word(result[i]);
+                }
+            }
+            free(result);
+            break;
+        }
+        case 'u':
+            printf("updating...\n");
+            update_db(words_db);
+            printf("update success, you can clear $HOME/.words now.\n");
+            break;
+    }
+    return 0;
+}
 
 int main(int argc, char *argv[]) {
     // init
@@ -19,74 +78,23 @@ int main(int argc, char *argv[]) {
         perror(err);
     }
 
-    switch(argc) {
-        case 1:
-            usage();
-            break;
-        case 2:
-            if(strcmp(argv[1], "update")==0) {
-                printf("updating...\n");
-                update_db(words_db);
-                printf("update success, you can clear $HOME/.words now.\n");
-            }
-            else if(strcmp(argv[1], "clean")==0) {
-                clean_db(words_db);
-                printf("clean success\n");
-            }
-            else if(strcmp(argv[1], "random")==0) {
-                Word *word;
-                word = NULL;
-                word = random_word(words_db);
-                print_word(word);
-                free_word(word);
-            }
-            else if(strcmp(argv[1], "top")==0) {
-                Word ** result = (Word**)malloc(sizeof(Word*)*10);
-                for(int i=0; i<10; i++) {
-                    result[i] = (Word*)malloc(sizeof(Word));
-                    result[i]->word = (char *)calloc(sizeof(char), LONGEST_WORD);
-                    result[i]->pronunciation = (char *)calloc(sizeof(char), LONGEST_WORD);
-                    result[i]->meaning = (char *)calloc(sizeof(char), BUFSIZ);
-                }
-                printf("You are here\n");
-                result = top_word(words_db, result);
-                for(int i=0; i<0; i++) {
-                    print_word(result[i]);
-                    free_word(result[i]);
-                }
-                free(result);
-            } else
-                usage();
-        case 3: {
-            Word *word = NULL;
-            word = query_word(words_db, argv[2]);
-            if(word!=NULL) {
-                print_word(word);
-                free_word(word);
-            }
-            break;
-        }
-        default:
-            usage();
-    }
+    struct argp_option options[] =
+        {
+         {"clean", 'c', 0, 0, "delete data in database", 0},
+         {"query", 'q', "WORD", 0, "query a word from datase", 0},
+         {"random", 'r', 0, 0, "show the top 10 words you most queried", 0},
+         {"top", 't', 0, 0, "show the top 10 words you most queried", 0},
+         {"update", 'u', 0, 0, "insert cache data to database", 0},
+         {0}
+        };
+
+    struct argp argp = {options, parse_opt, "[WORD]", argp_doc, NULL, NULL, NULL};
+    argp_parse(&argp, argc, argv, 0, 0, words_db);
+
     // clean
     free(path);
     sqlite3_close(words_db);
     return 0;
-}
-
-void usage() {
-    printf("\e[33;1mtict: dict in terminal with query record saved in local database.\n\e[0m");
-    printf("usage: tict [command]\n");
-    printf("command:\n");
-    printf("         update: insert cache data to database\n");
-    printf("                 cache data is a plain text which is generated by dict script and stored in $HOME/.words\n");
-    printf("         clean: delete data in table.\n");
-    printf("         query: query a word from database.\n");
-    printf("         top: show the top 10 words you most queried.\n");
-    printf("         random: pick up a random word from database.\n");
-    printf("         help: print this usage info.\n");
-
 }
 
 void print_word(Word *word) {
@@ -168,7 +176,7 @@ Word * query_word(sqlite3 *words_db, char *word) {
     Word *result = (Word *)malloc(sizeof(Word));
     result->word = NULL;
     char *sql = (char *)calloc(sizeof(char) , BUFSIZ);
-    sprintf(sql, "select * from words where word like \"%%%s%%\"", word);
+    sprintf(sql, "select * from words where word=\"%s\n\"", word);
     sqlite3_exec(words_db, sql, query_callback, result, NULL);
     if(result->word == NULL) {
         free(result);
@@ -184,7 +192,7 @@ Word ** top_word(sqlite3 *words_db, Word **result) {
 
     if(sqlite3_prepare(words_db, "select * from words order by query_count desc limit 10;", -1, &stmt, &zTail) == SQLITE_OK) {
         int i = 0;
-        while( sqlite3_step(stmt) == SQLITE_ROW ) { 
+        while(sqlite3_step(stmt) == SQLITE_ROW) { 
             result[i]->word = (char *)sqlite3_column_text(stmt, 1);
             result[i]->pronunciation = (char *)sqlite3_column_text(stmt, 2);
             result[i]->meaning = (char *)sqlite3_column_text(stmt, 3);
@@ -196,6 +204,11 @@ Word ** top_word(sqlite3 *words_db, Word **result) {
 
 Word * random_word(sqlite3 *words_db) {
     Word *result = (Word *)malloc(sizeof(Word));
+    result->word = NULL;
     sqlite3_exec(words_db, "select * from words order by random() limit 1;", query_callback, result, NULL);
+    if(result->word == NULL) {
+        free(result);
+        result = NULL;
+    }
     return result;
 }
