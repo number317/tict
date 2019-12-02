@@ -49,6 +49,7 @@ static int parse_opt(int key, char *arg, struct argp_state *state) {
                 printf("there is no word in database\n");
             else {
                 for(int i=0; i<10; i++) {
+                    printf("========================================\n");
                     print_word(result[i]);
                     free_word(result[i]);
                 }
@@ -192,12 +193,12 @@ Word ** top_word(sqlite3 *words_db, Word **result) {
 
     if(sqlite3_prepare(words_db, "select * from words order by query_count desc limit 10;", -1, &stmt, &zTail) == SQLITE_OK) {
         int i = 0;
-        while(sqlite3_step(stmt) == SQLITE_ROW) { 
-            result[i]->word = (char *)sqlite3_column_text(stmt, 1);
-            result[i]->pronunciation = (char *)sqlite3_column_text(stmt, 2);
-            result[i]->meaning = (char *)sqlite3_column_text(stmt, 3);
+        while(sqlite3_step(stmt) == SQLITE_ROW) {
+            strcpy(result[i]->word, (char *)sqlite3_column_text(stmt, 1));
+            strcpy(result[i]->pronunciation, (char *)sqlite3_column_text(stmt, 2));
+            strcpy(result[i]->meaning, (char *)sqlite3_column_text(stmt, 3));
             i++;
-        } 
+        }
     }
     return result;
 }

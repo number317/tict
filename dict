@@ -1,5 +1,5 @@
 #!/bin/bash
-result=$(tict query $1)
+result=$(tict -q $1)
 if [[ $result == "" ]];then
     content=$(curl http://dict.youdao.com/w/eng/$1/#keyfrom=dict2.index 2>/dev/null | head -n 300)
 
