@@ -19,5 +19,6 @@ void clean_db(sqlite3 *words_db);
 Word * query_word(sqlite3 *words_db, char *word);
 Word ** top_word(sqlite3 *words_db, Word **result);
 Word * random_word(sqlite3 *words_db);
+void dump_word(sqlite3 *words_db);
 
 #endif

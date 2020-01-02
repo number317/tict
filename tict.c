@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -12,7 +13,7 @@ const char *argp_program_version = "version 1.0.0";
 const char *argp_doc = "dict in terminal which saves query words in local database";
 
 static int parse_opt(int key, char *arg, struct argp_state *state) {
-    sqlite3 *words_db = state->input;
+    sqlite3 *words_db = (sqlite3 *)state->input;
     switch(key) {
         case 'c':
             clean_db(words_db);
@@ -62,6 +63,9 @@ static int parse_opt(int key, char *arg, struct argp_state *state) {
             update_db(words_db);
             printf("update success, you can clear $HOME/.words now.\n");
             break;
+        case 'd':
+            dump_word(words_db);
+            break;
     }
     return 0;
 }
@@ -86,6 +90,7 @@ int main(int argc, char *argv[]) {
          {"random", 'r', 0, 0, "show the top 10 words you most queried", 0},
          {"top", 't', 0, 0, "show the top 10 words you most queried", 0},
          {"update", 'u', 0, 0, "insert cache data to database", 0},
+         {"dump", 'd', 0, 0, "dump table words to stdout", 0},
          {0}
         };
 
@@ -212,4 +217,20 @@ Word * random_word(sqlite3 *words_db) {
         result = NULL;
     }
     return result;
+}
+
+void dump_word(sqlite3 *words_db) {
+    sqlite3_stmt *stmt = NULL;
+    const char *zTail;
+
+    if(sqlite3_prepare(words_db, "select * from words;", -1, &stmt, &zTail) == SQLITE_OK) {
+        while(sqlite3_step(stmt) == SQLITE_ROW) {
+            printf("%s%s%s",
+                   (char *)sqlite3_column_text(stmt, 1),
+                   (char *)sqlite3_column_text(stmt, 2),
+                   (char *)sqlite3_column_text(stmt, 3)
+                   );
+            printf("--------------------\n\n");
+        }
+    }
 }
