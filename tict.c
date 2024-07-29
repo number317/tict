@@ -23,6 +23,7 @@ static int parse_opt(int key, char *arg, struct argp_state *state) {
             Word *word = query_word(words_db, arg);
             if(word!=NULL) {
                 print_word(word);
+                add_query_count(words_db, word->word);
                 free_word(word);
             }
             break;
@@ -52,8 +53,10 @@ static int parse_opt(int key, char *arg, struct argp_state *state) {
                 for(int i=0; i<10; i++) {
                     printf("========================================\n");
                     print_word(result[i]);
-                    free_word(result[i]);
                 }
+            }
+            for(int i=0; i<10; i++) {
+                free_word(result[i]);
             }
             free(result);
             break;
@@ -79,7 +82,7 @@ int main(int argc, char *argv[]) {
     sqlite3_open(path, &words_db);
     if(result!=0) {
         char *err;
-        if(sqlite3_exec(words_db, "create table words(id integer primary key autoincrement, word text, pronunciation text, meaning text, query_count integer default 0);", NULL, NULL, &err)!=SQLITE_OK)
+        if(sqlite3_exec(words_db, "create table words(id integer primary key autoincrement, word text unique, pronunciation text, meaning text, query_count integer default 0);", NULL, NULL, &err)!=SQLITE_OK)
         perror(err);
     }
 
@@ -87,7 +90,7 @@ int main(int argc, char *argv[]) {
         {
          {"clean", 'c', 0, 0, "delete data in database", 0},
          {"query", 'q', "WORD", 0, "query a word from datase", 0},
-         {"random", 'r', 0, 0, "show the top 10 words you most queried", 0},
+         {"random", 'r', 0, 0, "show a random word from database", 0},
          {"top", 't', 0, 0, "show the top 10 words you most queried", 0},
          {"update", 'u', 0, 0, "insert cache data to database", 0},
          {"dump", 'd', 0, 0, "dump table words to stdout", 0},
@@ -104,7 +107,7 @@ int main(int argc, char *argv[]) {
 }
 
 void print_word(Word *word) {
-    printf("%s\e[32;1mUK\e[0m: %s%s", word->word,word->pronunciation,word->meaning);
+    printf("%s\n\e[32;1mUK\e[0m: %s\n%s\n", word->word,word->pronunciation,word->meaning);
 }
 
 void free_word(Word *word) {
@@ -144,8 +147,16 @@ void update_db(sqlite3 *words_db) {
     while((fgets(line, BUFSIZ, words)) != NULL) {
         if(strcmp(line, "\n")==0) {
             line_count = 1;
+            if (strlen(word->meaning) == 0) {
+                printf("Meaning of word '%s' is empty. skipping insert.\n", word->word);
+                continue;
+            }
+            if (strlen(word->pronunciation) == 0) {
+                printf("Pronunciation of word '%s' is empty. skipping insert.\n", word->word);
+                continue;
+            }
             sprintf(line,
-                    "insert into words(word, pronunciation, meaning) values(\"%s\", \"%s\", \"%s\");",
+                    "INSERT OR IGNORE INTO words (word, pronunciation, meaning) VALUES ('%s', '%s', '%s');",
                     word->word, word->pronunciation, word->meaning);
             sqlite3_exec(words_db, line, NULL, NULL, NULL);
             memset(word->word, 0, LONGEST_WORD);
@@ -155,15 +166,16 @@ void update_db(sqlite3 *words_db) {
         }
         switch(line_count) {
         case 1:
-            strncpy(word->word, line, strlen(line));
+            // 删除末尾换行符
+            strncpy(word->word, line, strlen(line) - 1);
             break;
         case 2:
             if(line[0]=='[')
-                strncpy(word->pronunciation, line, strlen(line));
+                strncpy(word->pronunciation, line, strlen(line) - 1);
             break;
         default:
             if(line[0]!='-')
-                strncat(word->meaning, line, strlen(line));
+                strncat(word->meaning, line, strlen(line) - 1);
             break;
         }
         line_count++;
@@ -174,7 +186,7 @@ void update_db(sqlite3 *words_db) {
 }
 
 void clean_db(sqlite3 *words_db) {
-    sqlite3_exec(words_db, "delete from words; vacuum;", NULL, NULL, NULL);
+    sqlite3_exec(words_db, "DELETE FROM words; vacuum;", NULL, NULL, NULL);
     sqlite3_exec(words_db, "UPDATE \"main\".\"sqlite_sequence\" SET seq = 0 WHERE name = 'words';", NULL, NULL, NULL);
 }
 
@@ -182,7 +194,7 @@ Word * query_word(sqlite3 *words_db, char *word) {
     Word *result = (Word *)malloc(sizeof(Word));
     result->word = NULL;
     char *sql = (char *)calloc(sizeof(char) , BUFSIZ);
-    sprintf(sql, "select * from words where word=\"%s\n\"", word);
+    sprintf(sql, "select * from words where word='%s' limit 1\n", word);
     sqlite3_exec(words_db, sql, query_callback, result, NULL);
     if(result->word == NULL) {
         free(result);
@@ -190,6 +202,13 @@ Word * query_word(sqlite3 *words_db, char *word) {
     }
     free(sql);
     return result;
+}
+
+void add_query_count(sqlite3 *words_db, char *word) {
+    char *sql = (char *)calloc(sizeof(char) , BUFSIZ);
+    sprintf(sql, "UPDATE words SET query_count = query_count + 1 WHERE word = '%s'\n", word);
+    sqlite3_exec(words_db, sql, NULL, NULL, NULL);
+    free(sql);
 }
 
 Word ** top_word(sqlite3 *words_db, Word **result) {
@@ -204,6 +223,7 @@ Word ** top_word(sqlite3 *words_db, Word **result) {
             strcpy(result[i]->meaning, (char *)sqlite3_column_text(stmt, 3));
             i++;
         }
+        sqlite3_finalize(stmt);
     }
     return result;
 }
@@ -223,14 +243,15 @@ void dump_word(sqlite3 *words_db) {
     sqlite3_stmt *stmt = NULL;
     const char *zTail;
 
-    if(sqlite3_prepare(words_db, "select * from words;", -1, &stmt, &zTail) == SQLITE_OK) {
+    if(sqlite3_prepare_v2(words_db, "select * from words;", -1, &stmt, &zTail) == SQLITE_OK) {
         while(sqlite3_step(stmt) == SQLITE_ROW) {
-            printf("%s%s%s",
+            printf("%s\n%s\n%s\n",
                    (char *)sqlite3_column_text(stmt, 1),
                    (char *)sqlite3_column_text(stmt, 2),
                    (char *)sqlite3_column_text(stmt, 3)
                    );
             printf("--------------------\n\n");
         }
+        sqlite3_finalize(stmt);
     }
 }

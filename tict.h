@@ -17,6 +17,7 @@ int query_callback(void *data, int column_count, char **column_value, char **col
 void update_db(sqlite3 *words_db);
 void clean_db(sqlite3 *words_db);
 Word * query_word(sqlite3 *words_db, char *word);
+void add_query_count(sqlite3 *words_db, char *word);
 Word ** top_word(sqlite3 *words_db, Word **result);
 Word * random_word(sqlite3 *words_db);
 void dump_word(sqlite3 *words_db);
